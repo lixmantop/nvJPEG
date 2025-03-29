@@ -293,7 +293,7 @@ ALL_LDFLAGS += $(addprefix -Xlinker ,$(LDFLAGS))
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(EXTRA_LDFLAGS))
 
 # Common includes and paths for CUDA
-INCLUDES  := -I../../../Common
+INCLUDES  := -I/home/emmanuel/trav/cuda-samples-11.6/Common
 LIBRARIES :=
 
 ################################################################################
@@ -301,7 +301,9 @@ LIBRARIES :=
 #ifeq ($(TARGET_ARCH),$(filter $(TARGET_ARCH),armv7l aarch64 sbsa))
 #SMS ?= 53 61 70 72 75 80 86 87
 #else
-SMS ?= 35 37 50 52 60 61 70 75 80 86
+#SMS ?= 35 37 50 52 60 61 70 75 80 86
+#SMS ?= 35 37 50 52 60
+SMS ?= 50 52 60
 #endif
 
 ifeq ($(SMS),)
