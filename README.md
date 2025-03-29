@@ -9,7 +9,7 @@ nvJPEG is based on an example from [CUDA version 11.7](https://developer.nvidia.
 ## Installing nvJPEG
 
   + Installing the NVIDIA linux driver
-  + Installing CUDA (=>11.7)
+  + Installing CUDA (=>12.5 git clone https://github.com/NVIDIA/cuda-samples.git)
   + Export the project and compile it (make)
   
  > [!CAUTION]
