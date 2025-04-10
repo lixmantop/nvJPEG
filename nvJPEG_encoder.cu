@@ -253,6 +253,8 @@ int diffcpu(char *newbuffer, char *oldbuffer,int *rect ,int w, int h) {
 	int i=0;
 	int pad=0;
 	int pad1=0;
+
+
 	for(int y=0;y<h/8;y++) {
 		pad=w*4;
 		pad1=pad*y*8;
@@ -301,6 +303,8 @@ void * start_server(void *param) {
 	int *listR;
 	int size_pBuffer=1950*1024*NVJPEG_MAX_COMPONENT;
 	unsigned int size=0;
+	int w_save=0;
+	int h_save=0;
 
 	encode_params_t params;
 //	params.dev = 0;
@@ -332,8 +336,8 @@ void * start_server(void *param) {
 	cudaMalloc(&oldBuffer, size_pBuffer);
 	cudaMalloc(&listrect, size_pBuffer*sizeof(int));
 	listR = (int *)malloc(size_pBuffer*sizeof(int));
-	oldBuffer1 = (char *)malloc(sizeof(char) *size_pBuffer);
-
+	cudaMallocHost(&oldBuffer1, sizeof(char) *size_pBuffer,cudaHostAllocDefault);
+	
 	//create server side
 	int s = 0;
 	int s2 = 0;
@@ -368,10 +372,6 @@ void * start_server(void *param) {
 			return NULL;
 		}
 		umask(saved_umask);
-//		if (chmod(socket_path, 0777) < 0) {
-//			printf(">> erreur chmod !!!");
-//			return NULL;
-//		}
 		if (listen(s, nIncomingConnections) != 0) {
 			printf("Error on listen call \n");
 		}
@@ -405,9 +405,9 @@ void * start_server(void *param) {
 		if (size_dd < recv_buf->size) {
 			if (bufInOut != NULL) {
 				printf(">>free size=%d => up to size=%d w=%d h=%d stride=%d \n",size_dd, recv_buf->size , recv_buf->height,recv_buf->height,recv_buf->stride);
-				free(bufInOut);
+				cudaFreeHost(bufInOut);
 			}
-			bufInOut = (char *) malloc(sizeof(char) * recv_buf->size);
+			cudaHostAlloc(&bufInOut, sizeof(char) * recv_buf->size, cudaHostAllocDefault);
 			size_dd = recv_buf->size;
 		}
 
@@ -427,12 +427,12 @@ void * start_server(void *param) {
 			checkCudaErrors(cudaFree(oldBuffer));
 			checkCudaErrors(cudaFree(listrect));
 			free(listR);
-			free(oldBuffer1);
+			cudaFreeHost(oldBuffer1);
 			cudaError_t eCopy = cudaMalloc(&pBuffer, size*2 );
 			eCopy = cudaMalloc(&oldBuffer, size );
 			eCopy = cudaMalloc(&listrect, size *sizeof(int));
 			listR = (int *)malloc(size*sizeof(int));
-			oldBuffer1 = (char *)malloc(sizeof(char) *size);
+			cudaMallocHost(&oldBuffer1,sizeof(char) *size,cudaHostAllocDefault);
 			init=1;
 
 			size_pBuffer=size*2;
@@ -466,25 +466,32 @@ void * start_server(void *param) {
 		}
 
 
-		if(recv_buf->raz_cache) {
-			// /*\ si taille w et/ou h different il faut supprimer old image cuda => init=1
+		if(recv_buf->raz_cache || h_save!=recv_buf->height || w_save!=recv_buf->width) {
 			init=1;
 		}
 
 		if(init==1) { // initialisation
+			h_save=recv_buf->height;
+			w_save=recv_buf->width;
 			cudaMemcpy(pBuffer+size, bufInOut,size * sizeof(char), cudaMemcpyHostToDevice);
 			char *temp = bufInOut;
 			bufInOut=oldBuffer1;
 			oldBuffer1=temp;
 			decode_encode<<<((size/4)+1023)/1024, 1024>>>(size/4, (char *)pBuffer+size,  (char *)pBuffer ,recv_buf->stride,recv_buf->width);
 			init=0;
+			memset(listR,-1,size * sizeof(int));
 			for(int yy=0;yy<recv_buf->height/8;yy++) {
 				listR[(yy*recv_buf->width)]=0;
 				listR[1+(yy*recv_buf->width)]=recv_buf->width;
 				listR[2+(yy*recv_buf->width)]=-1;
 			}
 		} else {
-			memset(listR,-1,size * sizeof(int));
+			for(int yy=0;;yy++) {
+				if(yy*recv_buf->width>size){
+					break;
+				}
+				listR[(yy*recv_buf->width)]=-1;
+			}
 			if(diffcpu((char *)bufInOut,  (char *)oldBuffer1,(int *) listR ,recv_buf->width,recv_buf->height)==0) {
 				/****  no diffrence    ****/
 				send_buf->x=0;
@@ -509,11 +516,12 @@ void * start_server(void *param) {
 			oldBuffer1=temp;
 
 			decode_encode<<<((size/4)+1023)/1024, 1024>>>(size/4, (char *)pBuffer+size,  (char *)pBuffer ,recv_buf->stride,recv_buf->width);
+
 			init=0;
 		}
 
 
-
+		 cudaDeviceSynchronize();
 		int pad=0;
 		int x=0;
 		int y=0;
@@ -553,9 +561,7 @@ void * start_server(void *param) {
 						(unsigned int) add1 } };
 
 
-				
 				error_cuda = nvjpegEncodeImage(nvjpeg_handle, encoder_state, encode_params, &imgdesc, iformat, w, h, NULL);
-
 				if(error_cuda) {
 					printf(">>>>> error_cuda  size=%d  x=%d y=%d  w=%d h=%d stride=%d \n\n",size, x,y,w,h,recv_buf->stride);
 					init=1;
@@ -565,6 +571,7 @@ void * start_server(void *param) {
 					checkCudaErrors(nvjpegEncodeRetrieveBitstream( nvjpeg_handle, encoder_state, (unsigned char*)bufInOut, &length, NULL));
 				}
 
+				cudaDeviceSynchronize();
 				send_buf->x=x;
 				send_buf->y=y;
 				send_buf->h=h;
@@ -618,7 +625,7 @@ void * start_server(void *param) {
 	}
 
 	if (bufInOut != NULL) {
-		free(bufInOut);
+		cudaFreeHost(bufInOut);
 	}
 	checkCudaErrors(cudaFree(pBuffer));
 
